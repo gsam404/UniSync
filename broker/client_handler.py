@@ -120,6 +120,16 @@ class ClientHandler(threading.Thread):
         self.role = role
         self.registered = True
 
+        # Restore saved subscriptions when a subscriber reconnects.
+        if self.role == "subscriber":
+            try:
+                self.broker.restore_subscriptions(self.client_id)
+
+            except Exception:
+                logger.exception("Failed to restore subscriptions")
+                self.send_error("Failed to restore subscriptions")
+                return
+
         logger.info(
             "%s connected | ID: %s | Address: %s",
             role.capitalize(),
@@ -135,6 +145,9 @@ class ClientHandler(threading.Thread):
                 ref=message_type,
             )
         )
+                # Deliver messages queued while the subscriber was offline.
+        if self.role == "subscriber":
+            self.broker.deliver_pending_messages(self)
 
         # 6. Keep the connection alive.
         while True:
@@ -219,6 +232,23 @@ class ClientHandler(threading.Thread):
                     self.send_error("Invalid topic")
                     continue
 
+                try:
+                    self.broker.queue_repository.save_subscription(
+                        self.client_id,
+                        topic,
+                    )
+
+                except Exception:
+                    logger.exception("Failed to save subscription")
+                    
+                    self.broker.topic_manager.unsubscribe(
+                        self.client_id,
+                        topic,
+                    )
+
+                    self.send_error("Failed to save subscription")
+                    continue    
+                        
                 # Confirm successful subscription.
                 self.send(
                     create_message(
@@ -256,6 +286,23 @@ class ClientHandler(threading.Thread):
                     self.send_error("Invalid topic")
                     continue
 
+                try:
+                    self.broker.queue_repository.remove_subscription(
+                        self.client_id,
+                        topic,
+                    )
+
+                except Exception:
+                    logger.exception("Failed to remove subscription")
+
+                    self.broker.topic_manager.subscribe(
+                        self.client_id,
+                        topic,
+                    )
+
+                    self.send_error("Failed to remove subscription")
+                    continue
+                    
                 # Confirm successful unsubscription.
                 self.send(
                     create_message(

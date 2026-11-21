@@ -7,6 +7,8 @@ import time
 from broker.topic_manager import TopicManager, is_valid_topic
 from broker.client_handler import ClientHandler
 from networking.protocol import MESSAGE, create_message
+from storage.database import initialize_database
+from storage.queue_repository import QueueRepository
 
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,13 @@ class BrokerServer:
 
         # Manages topic subscriptions.
         self.topic_manager = TopicManager()
+        
+        # Initialize SQLite database.
+        initialize_database()
 
+        # Handles persistent message storage.
+        self.queue_repository = QueueRepository()
+   
     def start(self):
         """
         Starts the broker in a background thread.
@@ -130,6 +138,28 @@ class BrokerServer:
             self.clients[client_id] = handler
 
             return True
+        
+    def restore_subscriptions(self, subscriber_id):
+        """
+        Restores a subscriber's saved topics from SQLite
+        into the in-memory TopicManager.
+        """
+
+        topics = self.queue_repository.get_subscriptions(
+            subscriber_id
+        )
+
+        for topic in topics:
+            self.topic_manager.subscribe(
+                subscriber_id,
+                topic,
+            )
+
+        logger.info(
+            "Restored %d subscriptions for %s",
+            len(topics),
+            subscriber_id,
+        )
 
     def unregister(self, client_id):
         """
@@ -198,6 +228,7 @@ class BrokerServer:
 
         logger.info("Broker stopped")
 
+    
     def publish_message(self, publisher_id, topic, title, content):
         """
         Validates, creates, and stores a published message.
@@ -207,22 +238,22 @@ class BrokerServer:
             (False, error_reason) if rejected
         """
 
-        # Validate topic
+        # Validate topic.
         if not is_valid_topic(topic):
             return False, "Invalid topic"
 
-        # Validate title
+        # Validate title.
         if not isinstance(title, str) or not title.strip():
             return False, "Title cannot be empty"
 
-        # Validate content
+        # Validate content.
         if not isinstance(content, str) or not content.strip():
             return False, "Content cannot be empty"
 
-        # Generate a unique message ID
+        # Generate a unique message ID.
         message_id = f"MSG-{uuid.uuid4().hex}"
 
-        # Create the message record
+        # Create the message record.
         message = {
             "message_id": message_id,
             "publisher_id": publisher_id,
@@ -232,10 +263,22 @@ class BrokerServer:
             "timestamp": time.time(),
         }
 
-        # Store the message safely
+        # Save the message permanently in SQLite.
+        try:
+            self.queue_repository.save_message(message)
+
+        except Exception:
+            logger.exception(
+                "Failed to save message %s to database",
+                message_id,
+            )
+            return False, "Failed to save message"
+
+        # Store the message in memory.
         with self.message_lock:
             self.messages[message_id] = message
-        # Forward the message to subscribers of this topic.
+
+        # Deliver the message to matching subscribers.
         self.route_message(message)
 
         logger.info(
@@ -246,49 +289,129 @@ class BrokerServer:
         )
 
         return True, message
-
-        return True, message
-
+   
     def route_message(self, message):
         """
-        Sends a published message to connected subscribers
-        of the message's topic.
+        Queues messages for all subscribers and sends them
+        immediately to connected subscribers.
         """
 
-        # Get subscribers interested in this topic.
-        subscriber_ids = self.topic_manager.get_subscribers(
+        # Get all subscribers, including those currently offline.
+        subscriber_ids = self.queue_repository.get_subscribers_by_topic(
             message["topic"]
         )
 
-        # Find their connected client handlers.
-        with self.lock:
-            recipients = [
-                self.clients[subscriber_id]
-                for subscriber_id in subscriber_ids
-                if subscriber_id in self.clients
-                and self.clients[subscriber_id].role == "subscriber"
-            ]
-
-        # Prepare the message for delivery.
         outgoing_message = create_message(
             MESSAGE,
             **message
         )
 
-        # Send the message to each matching subscriber.
-        for handler in recipients:
+        for subscriber_id in subscriber_ids:
+
+            # Save the message in the subscriber's pending queue.
+            try:
+                self.queue_repository.add_pending_delivery(
+                    subscriber_id,
+                    message["message_id"],
+                )
+
+            except Exception:
+                logger.exception(
+                    "Failed to queue message for %s",
+                    subscriber_id,
+                )
+                continue
+
+            # Check if the subscriber is connected.
+            with self.lock:
+                handler = self.clients.get(subscriber_id)
+
+                if handler is not None and handler.role != "subscriber":
+                    handler = None
+
+            # Keep the message queued if the subscriber is offline.
+            if handler is None:
+                continue
+
             try:
                 handler.send(outgoing_message)
+
+                self.queue_repository.remove_pending_delivery(
+                    subscriber_id,
+                    message["message_id"],
+                )
 
                 logger.info(
                     "Message %s delivered to %s",
                     message["message_id"],
-                    handler.client_id,
+                    subscriber_id,
                 )
 
-            except (ConnectionError, OSError) as exc:
+            except (ConnectionError, OSError):
                 logger.warning(
-                    "Could not deliver message to %s: %s",
-                    handler.client_id,
-                    exc,
+                    "Could not deliver message to %s",
+                    subscriber_id,
                 )
+
+            except Exception:
+                logger.exception(
+                    "Delivery processing failed for %s",
+                    subscriber_id,
+                )
+
+    def deliver_pending_messages(self, handler):
+        """
+        Sends queued messages to a subscriber after reconnection.
+        """
+
+        pending_messages = self.queue_repository.get_pending_deliveries(
+            handler.client_id
+        )
+
+        for message in pending_messages:
+
+            outgoing_message = create_message(
+                MESSAGE,
+                **message
+            )
+
+            try:
+                handler.send(outgoing_message)
+
+            except (ConnectionError, OSError):
+                logger.warning(
+                    "Failed to send pending message %s to %s",
+                    message["message_id"],
+                    handler.client_id,
+                )
+                break
+
+            try:
+                self.queue_repository.remove_pending_delivery(
+                    handler.client_id,
+                    message["message_id"],
+                )
+
+            except Exception:
+                logger.exception(
+                    "Failed to remove pending message %s",
+                    message["message_id"],
+                )
+                break
+
+            logger.info(
+                "Pending message %s delivered to %s",
+                message["message_id"],
+                handler.client_id,
+            )
+if __name__ == "__main__":
+    broker = BrokerServer()
+
+    try:
+        broker.start()
+
+        while True:
+            time.sleep(1)
+
+    except KeyboardInterrupt:
+        broker.stop()
