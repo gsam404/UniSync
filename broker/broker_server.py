@@ -6,6 +6,7 @@ import time
 
 from broker.topic_manager import TopicManager, is_valid_topic
 from broker.client_handler import ClientHandler
+from networking.protocol import MESSAGE, create_message
 
 
 logger = logging.getLogger(__name__)
@@ -234,6 +235,8 @@ class BrokerServer:
         # Store the message safely
         with self.message_lock:
             self.messages[message_id] = message
+        # Forward the message to subscribers of this topic.
+        self.route_message(message)
 
         logger.info(
             "Message published: %s | Topic: %s | Publisher: %s",
@@ -243,3 +246,49 @@ class BrokerServer:
         )
 
         return True, message
+
+        return True, message
+
+    def route_message(self, message):
+        """
+        Sends a published message to connected subscribers
+        of the message's topic.
+        """
+
+        # Get subscribers interested in this topic.
+        subscriber_ids = self.topic_manager.get_subscribers(
+            message["topic"]
+        )
+
+        # Find their connected client handlers.
+        with self.lock:
+            recipients = [
+                self.clients[subscriber_id]
+                for subscriber_id in subscriber_ids
+                if subscriber_id in self.clients
+                and self.clients[subscriber_id].role == "subscriber"
+            ]
+
+        # Prepare the message for delivery.
+        outgoing_message = create_message(
+            MESSAGE,
+            **message
+        )
+
+        # Send the message to each matching subscriber.
+        for handler in recipients:
+            try:
+                handler.send(outgoing_message)
+
+                logger.info(
+                    "Message %s delivered to %s",
+                    message["message_id"],
+                    handler.client_id,
+                )
+
+            except (ConnectionError, OSError) as exc:
+                logger.warning(
+                    "Could not deliver message to %s: %s",
+                    handler.client_id,
+                    exc,
+                )

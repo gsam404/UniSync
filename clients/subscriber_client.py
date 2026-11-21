@@ -1,4 +1,7 @@
+
 import socket
+import threading
+import queue
 
 from networking.socket_utils import send_msg, recv_msg
 from networking.protocol import (
@@ -6,6 +9,8 @@ from networking.protocol import (
     SUBSCRIBE,
     UNSUBSCRIBE,
     STATUS,
+    ERROR,
+    MESSAGE,
     DISCONNECT,
     create_message,
 )
@@ -48,45 +53,106 @@ def display_topics():
     print("===============================")
 
 
-def subscribe_to_topic(sock, topic):
-    send_msg(
+def listen_for_messages(sock, response_queue, stop_event):
+    """
+    Receives all messages from the broker.
+
+    This is the only function that reads from the socket
+    after subscriber registration.
+    """
+
+    while not stop_event.is_set():
+
+        try:
+            response = recv_msg(sock)
+
+            if response is None:
+                print("\nBroker connection closed.")
+                break
+
+            message_type = response.get("type")
+
+            if message_type == MESSAGE:
+                print("\n\n===== NEW NOTIFICATION =====")
+                print("Topic:", response.get("topic"))
+                print("Title:", response.get("title"))
+                print("Content:", response.get("content"))
+                print("Message ID:", response.get("message_id"))
+                print("============================\n")
+
+            elif message_type in (STATUS, ERROR):
+                response_queue.put(response)
+
+            else:
+                print("\nReceived unexpected message:", response)
+
+        except (ConnectionError, OSError, ValueError) as exc:
+            if not stop_event.is_set():
+                print(f"\nListener error: {exc}")
+            break
+
+    stop_event.set()
+
+
+def send_request(sock, response_queue, request):
+    """
+    Sends a request and waits for its broker response.
+    """
+
+    try:
+        send_msg(sock, request)
+        response = response_queue.get(timeout=5)
+
+    except queue.Empty:
+        print("No response from broker.")
+        return None
+
+    except (ConnectionError, OSError) as exc:
+        print(f"Connection error: {exc}")
+        return None
+
+    return response
+
+
+def subscribe_to_topic(sock, response_queue, topic):
+    response = send_request(
         sock,
-        create_message(
-            SUBSCRIBE,
-            topic=topic,
-        ),
+        response_queue,
+        create_message(SUBSCRIBE, topic=topic),
     )
 
-    response = recv_msg(sock)
-
     if response is None:
-        print("No response from broker.")
         return
 
     if response.get("type") == STATUS:
-        print(f"Successfully subscribed to {topic}.")
-    else:
-        print("Subscription failed:", response)
+        if response.get("status") == "SUBSCRIBED":
+            print(f"Successfully subscribed to {topic}.")
+        else:
+            print("Subscription failed:", response)
 
-def unsubscribe_from_topic(sock, topic):
-    send_msg(
+    else:
+        print("Subscription failed:", response.get("reason"))
+
+
+def unsubscribe_from_topic(sock, response_queue, topic):
+    response = send_request(
         sock,
-        create_message(
-            UNSUBSCRIBE,
-            topic=topic,
-        ),
+        response_queue,
+        create_message(UNSUBSCRIBE, topic=topic),
     )
 
-    response = recv_msg(sock)
-
     if response is None:
-        print("No response from broker.")
         return
 
     if response.get("type") == STATUS:
-        print(f"Successfully unsubscribed from {topic}.")
+        if response.get("status") == "UNSUBSCRIBED":
+            print(f"Successfully unsubscribed from {topic}.")
+        else:
+            print("Unsubscription failed:", response)
+
     else:
-        print("Unsubscription failed:", response)
+        print("Unsubscription failed:", response.get("reason"))
+
 
 def select_topic():
     display_topics()
@@ -101,7 +167,8 @@ def select_topic():
 
     return topic
 
-def subscriber_menu(sock):
+
+def subscriber_menu(sock, response_queue):
     while True:
         print("\n===== UniSync Subscriber Menu =====")
         print("1. Subscribe to a topic")
@@ -115,13 +182,13 @@ def subscriber_menu(sock):
             topic = select_topic()
 
             if topic:
-                subscribe_to_topic(sock, topic)
+                subscribe_to_topic(sock, response_queue, topic)
 
         elif choice == "2":
             topic = select_topic()
 
             if topic:
-                unsubscribe_from_topic(sock, topic)
+                unsubscribe_from_topic(sock, response_queue, topic)
 
         elif choice == "3":
             display_topics()
@@ -132,13 +199,18 @@ def subscriber_menu(sock):
         else:
             print("Invalid choice. Please try again.")
 
+
 def run_subscriber(client_id):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    stop_event = threading.Event()
+    response_queue = queue.Queue()
+    listener_thread = None
 
     try:
         sock.connect((HOST, PORT))
 
-        # Register as a subscriber
+        # Register as a subscriber.
         send_msg(
             sock,
             create_message(
@@ -147,6 +219,7 @@ def run_subscriber(client_id):
             ),
         )
 
+        # Read registration response before starting listener.
         response = recv_msg(sock)
 
         if response is None or response.get("type") != STATUS:
@@ -155,8 +228,19 @@ def run_subscriber(client_id):
 
         print(f"Subscriber '{client_id}' connected to UniSync.")
 
-        subscriber_menu(sock)
+        # Start the background listener.
+        listener_thread = threading.Thread(
+            target=listen_for_messages,
+            args=(sock, response_queue, stop_event),
+            daemon=True,
+        )
 
+        listener_thread.start()
+
+        # Open subscriber menu.
+        subscriber_menu(sock, response_queue)
+
+        # Notify broker before closing connection.
         send_msg(sock, create_message(DISCONNECT))
         print("Subscriber disconnected.")
 
@@ -164,6 +248,16 @@ def run_subscriber(client_id):
         print(f"Connection error: {exc}")
 
     finally:
+        stop_event.set()
+
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+        if listener_thread is not None:
+            listener_thread.join(timeout=2)
+
         sock.close()
 
 

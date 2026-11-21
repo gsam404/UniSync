@@ -195,7 +195,7 @@ class ClientHandler(threading.Thread):
 
                 continue
 
-                            # Handle subscription requests.
+                    # Handle subscription requests.
             if message_type == SUBSCRIBE:
 
                 # Only subscribers are allowed to subscribe.
@@ -299,6 +299,13 @@ class ClientHandler(threading.Thread):
         """
 
         if self.registered:
+
+
+            if self.role == "subscriber":
+                self.broker.topic_manager.remove_subscriber(
+                    self.client_id
+                )
+
             self.broker.unregister(self.client_id)
 
             logger.info(
