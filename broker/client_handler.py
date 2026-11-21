@@ -9,6 +9,7 @@ from networking.protocol import (
     PUBLISH,
     SUBSCRIBE,
     UNSUBSCRIBE,
+    ACK,
     STATUS,
     ERROR,
     DISCONNECT,
@@ -312,6 +313,38 @@ class ClientHandler(threading.Thread):
                         topic=topic,
                     )
                 )
+
+                continue
+
+            # Handle message acknowledgments.
+            if message_type == ACK:
+
+                # Only subscribers can acknowledge messages.
+                if self.role != "subscriber":
+                    self.send_error(
+                        "Only subscribers can acknowledge messages"
+                    )
+                    continue
+
+                # Validate the message ID.
+                message_id = message.get("message_id")
+
+                if not isinstance(message_id, str) or not message_id:
+                    self.send_error("Invalid message ID in ACK")
+                    continue
+
+                # Remove the pending delivery for this subscriber.
+                acknowledged = self.broker.acknowledge_message(
+                    self.client_id,
+                    message_id,
+                )
+
+                if acknowledged:
+                    logger.info(
+                        "Message acknowledged | Subscriber: %s | Message: %s",
+                        self.client_id,
+                        message_id,
+                    )
 
                 continue
 

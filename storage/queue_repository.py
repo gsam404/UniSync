@@ -188,17 +188,17 @@ class QueueRepository:
             connection.close()
 
     def remove_pending_delivery(self, subscriber_id, message_id):
-        """Removes a message after successful delivery."""
+        """Removes a pending delivery after receiving a valid ACK."""
         connection = get_connection()
 
         try:
-            connection.execute("""
+            cursor = connection.execute("""
                 DELETE FROM pending_deliveries
                 WHERE subscriber_id = ? AND message_id = ?
             """, (subscriber_id, message_id))
 
             connection.commit()
-            return True
+            return cursor.rowcount > 0
 
         finally:
             connection.close()

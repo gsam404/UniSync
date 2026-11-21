@@ -161,6 +161,25 @@ class BrokerServer:
             subscriber_id,
         )
 
+    def acknowledge_message(self, subscriber_id, message_id):
+        """
+        Removes a pending delivery after a subscriber acknowledges it.
+        """
+
+        try:
+            return self.queue_repository.remove_pending_delivery(
+                subscriber_id,
+                message_id,
+            )
+
+        except Exception:
+            logger.exception(
+                "Failed to acknowledge message %s for %s",
+                message_id,
+                subscriber_id,
+            )
+            return False
+        
     def unregister(self, client_id):
         """
         Removes a client safely.
@@ -336,11 +355,6 @@ class BrokerServer:
             try:
                 handler.send(outgoing_message)
 
-                self.queue_repository.remove_pending_delivery(
-                    subscriber_id,
-                    message["message_id"],
-                )
-
                 logger.info(
                     "Message %s delivered to %s",
                     message["message_id"],
@@ -383,19 +397,6 @@ class BrokerServer:
                     "Failed to send pending message %s to %s",
                     message["message_id"],
                     handler.client_id,
-                )
-                break
-
-            try:
-                self.queue_repository.remove_pending_delivery(
-                    handler.client_id,
-                    message["message_id"],
-                )
-
-            except Exception:
-                logger.exception(
-                    "Failed to remove pending message %s",
-                    message["message_id"],
                 )
                 break
 

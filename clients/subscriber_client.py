@@ -11,6 +11,7 @@ from networking.protocol import (
     STATUS,
     ERROR,
     MESSAGE,
+    ACK,
     DISCONNECT,
     create_message,
 )
@@ -18,6 +19,7 @@ from networking.protocol import (
 
 HOST = "127.0.0.1"
 PORT = 5000
+SEND_LOCK = threading.Lock()
 
 UNIVERSITY_TOPICS = {
     "1": "university.announcements",
@@ -80,6 +82,23 @@ def listen_for_messages(sock, response_queue, stop_event):
                 print("Message ID:", response.get("message_id"))
                 print("============================\n")
 
+                message_id = response.get("message_id")
+
+                if isinstance(message_id, str) and message_id:
+                    try:
+                        with SEND_LOCK:
+                            send_msg(
+                                sock,
+                                create_message(
+                                    ACK,
+                                    message_id=message_id,
+                                ),
+                            )
+                        print("Notification Acknowledged.")
+
+                    except (ConnectionError, OSError) as exc:
+                        print(f"Failed to acknowledge notification {message_id}: {exc}")
+
             elif message_type in (STATUS, ERROR):
                 response_queue.put(response)
 
@@ -100,7 +119,9 @@ def send_request(sock, response_queue, request):
     """
 
     try:
-        send_msg(sock, request)
+        with SEND_LOCK:   
+            send_msg(sock, request)
+
         response = response_queue.get(timeout=5)
 
     except queue.Empty:
@@ -241,7 +262,8 @@ def run_subscriber(client_id):
         subscriber_menu(sock, response_queue)
 
         # Notify broker before closing connection.
-        send_msg(sock, create_message(DISCONNECT))
+        with SEND_LOCK:
+            send_msg(sock, create_message(DISCONNECT))
         print("Subscriber disconnected.")
 
     except (ConnectionError, OSError) as exc:
@@ -266,3 +288,5 @@ if __name__ == "__main__":
 
     if client_id:
         run_subscriber(client_id)
+
+

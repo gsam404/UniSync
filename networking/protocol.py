@@ -15,6 +15,7 @@ STATUS = "STATUS"
 ERROR = "ERROR"
 
 MESSAGE = "MESSAGE"
+ACK = "ACK"
 
 # Client lifecycle
 DISCONNECT = "DISCONNECT"
