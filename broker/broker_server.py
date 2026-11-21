@@ -4,7 +4,7 @@ import logging
 import uuid
 import time
 
-from broker.topic_manager import is_valid_topic
+from broker.topic_manager import TopicManager, is_valid_topic
 from broker.client_handler import ClientHandler
 
 
@@ -34,6 +34,9 @@ class BrokerServer:
 
         # Protects the shared message collection.
         self.message_lock = threading.Lock()
+
+        # Manages topic subscriptions.
+        self.topic_manager = TopicManager()
 
     def start(self):
         """

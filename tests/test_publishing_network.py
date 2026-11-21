@@ -7,6 +7,8 @@ from networking.protocol import (
     REGISTER_PUBLISHER,
     REGISTER_SUBSCRIBER,
     PUBLISH,
+    SUBSCRIBE,
+    UNSUBSCRIBE,
     STATUS,
     ERROR,
     create_message,
@@ -157,7 +159,6 @@ class PublishingNetworkTests(unittest.TestCase):
         ]
 
         for request in invalid_requests:
-
             # Send invalid publishing request.
             send_msg(
                 publisher,
@@ -199,6 +200,202 @@ class PublishingNetworkTests(unittest.TestCase):
 
         # Only the valid message should have been stored.
         self.assertEqual(len(self.broker.messages), 1)
+
+    def test_subscriber_can_subscribe_over_tcp(self):
+        subscriber = self.connect_client(
+            "STU-001",
+            REGISTER_SUBSCRIBER,
+        )
+
+        # Send a SUBSCRIBE request.
+        send_msg(
+            subscriber,
+            create_message(
+                SUBSCRIBE,
+                topic="college.ict",
+            ),
+        )
+
+        # Receive broker confirmation.
+        response = recv_msg(subscriber)
+
+        self.assertEqual(response["type"], STATUS)
+        self.assertEqual(response["status"], "SUBSCRIBED")
+        self.assertEqual(response["ref"], SUBSCRIBE)
+        self.assertEqual(response["topic"], "college.ict")
+
+        # Verify the subscription was stored in TopicManager.
+        subscribers = self.broker.topic_manager.get_subscribers(
+            "college.ict"
+        )
+
+        self.assertIn("STU-001", subscribers)
+
+    def test_subscriber_can_unsubscribe_over_tcp(self):
+        subscriber = self.connect_client(
+            "STU-002",
+            REGISTER_SUBSCRIBER,
+        )
+
+        # Subscribe first.
+        send_msg(
+            subscriber,
+            create_message(
+                SUBSCRIBE,
+                topic="college.ict",
+            ),
+        )
+
+        subscribe_response = recv_msg(subscriber)
+
+        self.assertEqual(
+            subscribe_response["status"],
+            "SUBSCRIBED",
+        )
+
+        # Now unsubscribe.
+        send_msg(
+            subscriber,
+            create_message(
+                UNSUBSCRIBE,
+                topic="college.ict",
+            ),
+        )
+
+        # Receive broker confirmation.
+        response = recv_msg(subscriber)
+
+        self.assertEqual(response["type"], STATUS)
+        self.assertEqual(response["status"], "UNSUBSCRIBED")
+        self.assertEqual(response["ref"], UNSUBSCRIBE)
+        self.assertEqual(response["topic"], "college.ict")
+
+        # Verify the subscription was removed.
+        subscribers = self.broker.topic_manager.get_subscribers(
+            "college.ict"
+        )
+
+        self.assertNotIn("STU-002", subscribers)
+
+    def test_subscriber_cannot_subscribe_to_invalid_topic(self):
+        subscriber = self.connect_client(
+            "STU-003",
+            REGISTER_SUBSCRIBER,
+        )
+
+        # Attempt to subscribe to an invalid topic.
+        send_msg(
+            subscriber,
+            create_message(
+                SUBSCRIBE,
+                topic="college.fake",
+            ),
+        )
+
+        # Receive rejection.
+        response = recv_msg(subscriber)
+
+        self.assertEqual(response["type"], ERROR)
+        self.assertEqual(response["reason"], "Invalid topic")
+
+        # Invalid subscription must not be stored.
+        subscribers = self.broker.topic_manager.get_subscribers(
+            "college.fake"
+        )
+
+        self.assertNotIn("STU-003", subscribers)
+
+        # Verify the subscriber is still connected by sending
+        # a valid subscription request afterward.
+        send_msg(
+            subscriber,
+            create_message(
+                SUBSCRIBE,
+                topic="college.ict",
+            ),
+        )
+
+        response = recv_msg(subscriber)
+
+        self.assertEqual(response["type"], STATUS)
+        self.assertEqual(response["status"], "SUBSCRIBED")
+
+    def test_publisher_cannot_subscribe_over_tcp(self):
+        publisher = self.connect_client(
+            "PUB-ICT",
+            REGISTER_PUBLISHER,
+        )
+
+        # Publisher attempts to subscribe.
+        send_msg(
+            publisher,
+            create_message(
+                SUBSCRIBE,
+                topic="college.ict",
+            ),
+        )
+
+        # Receive rejection.
+        response = recv_msg(publisher)
+
+        self.assertEqual(response["type"], ERROR)
+        self.assertEqual(
+            response["reason"],
+            "Only subscribers can subscribe to topics",
+        )
+
+        # Verify publisher was not added to the subscription.
+        subscribers = self.broker.topic_manager.get_subscribers(
+            "college.ict"
+        )
+
+        self.assertNotIn("PUB-ICT", subscribers)
+
+        # Verify publisher can still publish after rejection.
+        send_msg(
+            publisher,
+            create_message(
+                PUBLISH,
+                topic="college.ict",
+                title="Test Announcement",
+                content="Publisher is still operational.",
+            ),
+        )
+
+        response = recv_msg(publisher)
+
+        self.assertEqual(response["type"], STATUS)
+        self.assertEqual(response["status"], "ACCEPTED")
+
+    def test_unsubscribe_from_unsubscribed_topic_over_tcp(self):
+        subscriber = self.connect_client(
+            "STU-004",
+            REGISTER_SUBSCRIBER,
+        )
+
+        # Unsubscribe without subscribing first.
+        send_msg(
+            subscriber,
+            create_message(
+                UNSUBSCRIBE,
+                topic="college.ict",
+            ),
+        )
+
+        response = recv_msg(subscriber)
+
+        # Unsubscription should still be successful.
+        self.assertEqual(response["type"], STATUS)
+        self.assertEqual(response["status"], "UNSUBSCRIBED")
+        self.assertEqual(response["ref"], UNSUBSCRIBE)
+        self.assertEqual(response["topic"], "college.ict")
+
+        # No subscription should have been created.
+        subscribers = self.broker.topic_manager.get_subscribers(
+            "college.ict"
+        )
+
+        self.assertNotIn("STU-004", subscribers)
 
 
 if __name__ == "__main__":

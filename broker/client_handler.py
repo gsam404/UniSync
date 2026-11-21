@@ -7,6 +7,8 @@ from networking.protocol import (
     REGISTER_SUBSCRIBER,
     VALID_REGISTRATION_TYPES,
     PUBLISH,
+    SUBSCRIBE,
+    UNSUBSCRIBE,
     STATUS,
     ERROR,
     DISCONNECT,
@@ -188,6 +190,79 @@ class ClientHandler(threading.Thread):
                         status="ACCEPTED",
                         ref=PUBLISH,
                         message_id=result["message_id"],
+                    )
+                )
+
+                continue
+
+                            # Handle subscription requests.
+            if message_type == SUBSCRIBE:
+
+                # Only subscribers are allowed to subscribe.
+                if self.role != "subscriber":
+                    self.send_error(
+                        "Only subscribers can subscribe to topics"
+                    )
+                    continue
+
+                # Extract the requested topic.
+                topic = message.get("topic")
+
+                # Ask the broker's TopicManager to subscribe this client.
+                accepted = self.broker.topic_manager.subscribe(
+                    self.client_id,
+                    topic,
+                )
+
+                # Reject invalid topics.
+                if not accepted:
+                    self.send_error("Invalid topic")
+                    continue
+
+                # Confirm successful subscription.
+                self.send(
+                    create_message(
+                        STATUS,
+                        status="SUBSCRIBED",
+                        ref=SUBSCRIBE,
+                        topic=topic,
+                    )
+                )
+
+                continue
+
+            # Handle unsubscription requests.
+                        # Handle unsubscription requests.
+            if message_type == UNSUBSCRIBE:
+
+                # Only subscribers are allowed to unsubscribe.
+                if self.role != "subscriber":
+                    self.send_error(
+                        "Only subscribers can unsubscribe from topics"
+                    )
+                    continue
+
+                # Extract the requested topic.
+                topic = message.get("topic")
+
+                # Ask the broker's TopicManager to unsubscribe this client.
+                accepted = self.broker.topic_manager.unsubscribe(
+                    self.client_id,
+                    topic,
+                )
+
+                # Reject invalid topics.
+                if not accepted:
+                    self.send_error("Invalid topic")
+                    continue
+
+                # Confirm successful unsubscription.
+                self.send(
+                    create_message(
+                        STATUS,
+                        status="UNSUBSCRIBED",
+                        ref=UNSUBSCRIBE,
+                        topic=topic,
                     )
                 )
 
