@@ -46,6 +46,11 @@ class BrokerServer:
 
         # Handles persistent message storage.
         self.queue_repository = QueueRepository()
+
+        # Controls automatic message delivery retries.
+        self.retry_interval = 2
+        self.retry_delay = 5
+        self.retry_thread = None
    
     def start(self):
         """
@@ -89,6 +94,74 @@ class BrokerServer:
             self.host,
             self.port,
         )
+
+        self.retry_thread = threading.Thread(
+            target=self.retry_pending_deliveries,
+            daemon=True,
+        )
+        self.retry_thread.start()
+
+    def retry_pending_deliveries(self):
+        """Periodically retries pending message deliveries."""
+
+        while self.running:
+            try:
+                due_deliveries = (
+                    self.queue_repository.get_due_deliveries()
+                )
+
+                for message in due_deliveries:
+                    subscriber_id = message["subscriber_id"]
+
+                    with self.lock:
+                        handler = self.clients.get(subscriber_id)
+
+                        if handler is not None and handler.role != "subscriber":
+                            handler = None
+
+                    if handler is None:
+                        continue
+
+                    outgoing_message = create_message(
+                        MESSAGE,
+                        **{
+                            key: value
+                            for key, value in message.items()
+                            if key != "subscriber_id"
+                        }
+                    )
+
+                    try:
+                        handler.send(outgoing_message)
+
+                        self.queue_repository.record_delivery_attempt(
+                            subscriber_id,
+                            message["message_id"],
+                            self.retry_delay,
+                        )
+
+                        logger.info(
+                            "Retrying message %s for %s",
+                            message["message_id"],
+                            subscriber_id,
+                        )
+
+                    except (ConnectionError, OSError):
+                        self.queue_repository.record_delivery_attempt(
+                            subscriber_id,
+                            message["message_id"],
+                            self.retry_delay,
+                        )
+
+                        logger.warning(
+                            "Retry failed for %s",
+                            subscriber_id,
+                        )
+
+            except Exception:
+                logger.exception("Retry worker encountered an error")
+
+            time.sleep(self.retry_interval)
 
     def accept_clients(self):
         """
@@ -245,7 +318,11 @@ class BrokerServer:
         if self.accept_thread is not None:
             self.accept_thread.join(timeout=2)
 
+        if self.retry_thread is not None:
+            self.retry_thread.join(timeout=2)
+
         logger.info("Broker stopped")
+
 
     
     def publish_message(self, publisher_id, topic, title, content):
@@ -355,6 +432,12 @@ class BrokerServer:
             try:
                 handler.send(outgoing_message)
 
+                self.queue_repository.record_delivery_attempt(
+                    subscriber_id,
+                    message["message_id"],
+                    self.retry_delay,
+                )
+
                 logger.info(
                     "Message %s delivered to %s",
                     message["message_id"],
@@ -391,6 +474,12 @@ class BrokerServer:
 
             try:
                 handler.send(outgoing_message)
+
+                self.queue_repository.record_delivery_attempt(
+                    handler.client_id,
+                    message["message_id"],
+                    self.retry_delay,
+                ) 
 
             except (ConnectionError, OSError):
                 logger.warning(

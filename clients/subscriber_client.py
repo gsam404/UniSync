@@ -81,7 +81,7 @@ def listen_for_messages(sock, response_queue, stop_event):
                 print("Content:", response.get("content"))
                 print("Message ID:", response.get("message_id"))
                 print("============================\n")
-
+                
                 message_id = response.get("message_id")
 
                 if isinstance(message_id, str) and message_id:
@@ -98,9 +98,10 @@ def listen_for_messages(sock, response_queue, stop_event):
 
                     except (ConnectionError, OSError) as exc:
                         print(f"Failed to acknowledge notification {message_id}: {exc}")
-
             elif message_type in (STATUS, ERROR):
                 response_queue.put(response)
+
+
 
             else:
                 print("\nReceived unexpected message:", response)

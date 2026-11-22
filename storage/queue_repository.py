@@ -227,3 +227,26 @@ class QueueRepository:
 
         finally:
             connection.close()
+
+    def get_due_deliveries(self):
+        """Retrieves pending deliveries that are ready for retry."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT
+                    pending_deliveries.subscriber_id,
+                    messages.*
+                FROM pending_deliveries
+                JOIN messages
+                    ON pending_deliveries.message_id = messages.message_id
+                WHERE pending_deliveries.next_retry IS NULL
+                    OR pending_deliveries.next_retry <= ?
+                ORDER BY pending_deliveries.queued_at ASC
+            """, (time.time(),))
+
+            return [dict(row) for row in cursor.fetchall()]
+
+        finally:
+            connection.close()
+
