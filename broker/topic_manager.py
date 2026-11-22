@@ -76,5 +76,23 @@ class TopicManager:
                 for topic, subscribers in self.subscriptions.items()
                 if subscriber_id in subscribers
             ]
-
         return sorted(topics)
+
+    def remove_subscriber(self, subscriber_id):
+        """
+        Removes a subscriber from all topics.
+        """
+        with self.lock:
+            empty_topics = []
+
+            for topic, subscribers in self.subscriptions.items():
+                subscribers.discard(subscriber_id)
+
+                if not subscribers:
+                    empty_topics.append(topic)
+
+            for topic in empty_topics:
+                del self.subscriptions[topic]
+
+
+    

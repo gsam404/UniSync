@@ -103,6 +103,29 @@ class TopicManagerTests(unittest.TestCase):
             ["college.ict", "university.academic", "university.library"],
         )
 
+ # Tests for remove_subscriber()
+
+    def test_remove_subscriber_from_all_topics(self):
+        self.tm.subscribe("SUB-001", "college.ict")
+        self.tm.subscribe("SUB-001", "university.events")
+        self.tm.subscribe("SUB-002", "college.ict")
+
+        self.tm.remove_subscriber("SUB-001")
+
+        self.assertEqual(self.tm.get_subscriptions("SUB-001"), [])
+        self.assertEqual(
+            self.tm.get_subscribers("college.ict"),
+            {"SUB-002"},
+        )
+
+    def test_remove_last_subscriber_cleans_empty_topics(self):
+        self.tm.subscribe("SUB-001", "college.ict")
+        self.tm.subscribe("SUB-001", "university.events")
+
+        self.tm.remove_subscriber("SUB-001")
+
+        self.assertEqual(self.tm.subscriptions, {})
+
 
 if __name__ == "__main__":
     unittest.main()

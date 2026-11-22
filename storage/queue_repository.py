@@ -1,0 +1,204 @@
+import time
+
+from storage.database import get_connection
+
+
+class QueueRepository:
+
+    def save_message(self, message):
+        """
+        Saves a published message to the database.
+        """
+        connection = get_connection()
+
+        try:
+            cursor = connection.cursor()
+
+            cursor.execute("""
+                INSERT INTO messages (
+                    message_id,
+                    publisher_id,
+                    topic,
+                    title,
+                    content,
+                    timestamp
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                message["message_id"],
+                message["publisher_id"],
+                message["topic"],
+                message["title"],
+                message["content"],
+                message["timestamp"]
+            ))
+
+            connection.commit()
+            return True
+
+        except Exception:
+            connection.rollback()
+            raise
+
+        finally:
+            connection.close()
+
+    def get_message(self, message_id):
+        """
+        Retrieves a message using its ID.
+        """
+        connection = get_connection()
+
+        try:
+            cursor = connection.cursor()
+
+            cursor.execute(
+                "SELECT * FROM messages WHERE message_id = ?",
+                (message_id,)
+            )
+
+            result = cursor.fetchone()
+
+            return dict(result) if result else None
+
+        finally:
+            connection.close()
+
+    def get_messages_by_topic(self, topic):
+        """
+        Retrieves all messages belonging to a topic.
+        """
+        connection = get_connection()
+
+        try:
+            cursor = connection.cursor()
+
+            cursor.execute("""
+                SELECT * FROM messages
+                WHERE topic = ?
+                ORDER BY timestamp DESC
+            """, (topic,))
+
+            results = cursor.fetchall()
+
+            return [dict(row) for row in results]
+
+        finally:
+            connection.close()
+
+
+    def save_subscription(self, subscriber_id, topic):
+        """Saves a subscriber's topic subscription."""
+        connection = get_connection()
+
+        try:
+            connection.execute("""
+                INSERT OR IGNORE INTO subscriptions
+                (subscriber_id, topic)
+                VALUES (?, ?)
+            """, (subscriber_id, topic))
+
+            connection.commit()
+            return True
+
+        finally:
+            connection.close()
+
+    def remove_subscription(self, subscriber_id, topic):
+        """Removes a subscriber's topic subscription."""
+        connection = get_connection()
+
+        try:
+            connection.execute("""
+                DELETE FROM subscriptions
+                WHERE subscriber_id = ? AND topic = ?
+            """, (subscriber_id, topic))
+
+            connection.commit()
+            return True
+
+        finally:
+            connection.close()
+
+    def get_subscriptions(self, subscriber_id):
+        """Retrieves all topics followed by a subscriber."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT topic FROM subscriptions
+                WHERE subscriber_id = ?
+                ORDER BY topic
+            """, (subscriber_id,))
+
+            return [row["topic"] for row in cursor.fetchall()]
+
+        finally:
+            connection.close()
+
+    def get_subscribers_by_topic(self, topic):
+        """Retrieves all subscribers of a topic."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT subscriber_id FROM subscriptions
+                WHERE topic = ?
+            """, (topic,))
+
+            return [row["subscriber_id"] for row in cursor.fetchall()]
+
+        finally:
+            connection.close()
+
+    def add_pending_delivery(self, subscriber_id, message_id):
+        """Adds a message to a subscriber's pending delivery queue."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                INSERT OR IGNORE INTO pending_deliveries
+                (subscriber_id, message_id, queued_at)
+                VALUES (?, ?, ?)
+            """, (subscriber_id, message_id, time.time()))
+
+            connection.commit()
+            return cursor.rowcount > 0
+
+        finally:
+            connection.close()
+
+    def get_pending_deliveries(self, subscriber_id):
+        """Retrieves pending messages for a subscriber."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT messages.*
+                FROM pending_deliveries
+                JOIN messages
+                    ON pending_deliveries.message_id = messages.message_id
+                WHERE pending_deliveries.subscriber_id = ?
+                ORDER BY pending_deliveries.queued_at ASC
+            """, (subscriber_id,))
+
+            return [dict(row) for row in cursor.fetchall()]
+
+        finally:
+            connection.close()
+
+    def remove_pending_delivery(self, subscriber_id, message_id):
+        """Removes a pending delivery after receiving a valid ACK."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                DELETE FROM pending_deliveries
+                WHERE subscriber_id = ? AND message_id = ?
+            """, (subscriber_id, message_id))
+
+            connection.commit()
+            return cursor.rowcount > 0
+
+        finally:
+            connection.close()

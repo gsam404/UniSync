@@ -1,3 +1,7 @@
 venv/
 __pycache__/
 data/*.db
+
+# SQLite database files
+storage/*.db
+storage/*.db-journal
