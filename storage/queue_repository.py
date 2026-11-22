@@ -86,7 +86,6 @@ class QueueRepository:
         finally:
             connection.close()
 
-
     def save_subscription(self, subscriber_id, topic):
         """Saves a subscriber's topic subscription."""
         connection = get_connection()
@@ -161,6 +160,32 @@ class QueueRepository:
                 (subscriber_id, message_id, queued_at)
                 VALUES (?, ?, ?)
             """, (subscriber_id, message_id, time.time()))
+
+            connection.commit()
+            return cursor.rowcount > 0
+
+        finally:
+            connection.close()
+
+    def record_delivery_attempt(self, subscriber_id, message_id, retry_delay):
+        """Records a delivery attempt and schedules the next retry."""
+        connection = get_connection()
+
+        try:
+            now = time.time()
+
+            cursor = connection.execute("""
+                UPDATE pending_deliveries
+                SET attempts = attempts + 1,
+                    last_attempt = ?,
+                    next_retry = ?
+                WHERE subscriber_id = ? AND message_id = ?
+            """, (
+                now,
+                now + retry_delay,
+                subscriber_id,
+                message_id
+            ))
 
             connection.commit()
             return cursor.rowcount > 0

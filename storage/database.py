@@ -54,12 +54,41 @@ def initialize_database():
                 subscriber_id TEXT NOT NULL,
                 message_id TEXT NOT NULL,
                 queued_at REAL NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_attempt REAL,
+                next_retry REAL,
                 PRIMARY KEY (subscriber_id, message_id),
                 FOREIGN KEY (message_id)
                     REFERENCES messages(message_id)
                     ON DELETE CASCADE
             )
         """)
+
+                # Add retry tracking columns to existing databases.
+        existing_columns = {
+            row["name"]
+            for row in cursor.execute(
+                "PRAGMA table_info(pending_deliveries)"
+            ).fetchall()
+        }
+
+        if "attempts" not in existing_columns:
+            cursor.execute("""
+                ALTER TABLE pending_deliveries
+                ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0
+            """)
+
+        if "last_attempt" not in existing_columns:
+            cursor.execute("""
+                ALTER TABLE pending_deliveries
+                ADD COLUMN last_attempt REAL
+            """)
+
+        if "next_retry" not in existing_columns:
+            cursor.execute("""
+                ALTER TABLE pending_deliveries
+                ADD COLUMN next_retry REAL
+            """)
 
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_pending_subscriber
