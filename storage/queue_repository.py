@@ -227,7 +227,7 @@ class QueueRepository:
             connection.close()
 
     def get_pending_deliveries(self, subscriber_id):
-        """Retrieves pending messages for a subscriber."""
+        """Retrieves pending messages that are ready for delivery."""
         connection = get_connection()
 
         try:
@@ -237,8 +237,12 @@ class QueueRepository:
                 JOIN messages
                     ON pending_deliveries.message_id = messages.message_id
                 WHERE pending_deliveries.subscriber_id = ?
+                    AND (
+                        pending_deliveries.next_retry IS NULL
+                        OR pending_deliveries.next_retry <= ?
+                    )
                 ORDER BY pending_deliveries.queued_at ASC
-            """, (subscriber_id,))
+            """, (subscriber_id, time.time()))
 
             return [dict(row) for row in cursor.fetchall()]
 

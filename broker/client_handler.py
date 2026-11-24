@@ -3,6 +3,7 @@ import threading
 import logging
 
 from clients.client_manager import get_publisher_topics
+from broker.topic_manager import is_valid_topic
 from networking.socket_utils import send_msg, recv_msg
 from networking.protocol import (
     REGISTER_PUBLISHER,
@@ -185,6 +186,11 @@ class ClientHandler(threading.Thread):
                 topic = message.get("topic")
                 title = message.get("title")
                 content = message.get("content")
+
+                # Check whether the topic is valid.
+                if not is_valid_topic(topic):
+                    self.send_error("Invalid topic")
+                    continue
 
                 # Check whether the publisher is authorized
                 # to publish to this topic.
