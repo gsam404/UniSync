@@ -5,12 +5,13 @@ import uuid
 import time
 
 from broker.topic_manager import TopicManager, is_valid_topic
+from clients.client_manager import get_publisher
 from broker.client_handler import ClientHandler
 from networking.protocol import MESSAGE, create_message
 from storage.database import initialize_database
 from storage.queue_repository import QueueRepository
 
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -199,6 +200,8 @@ class BrokerServer:
             True if registration succeeds
             False if the ID is already in use or the broker is stopping
         """
+        if role == "publisher" and get_publisher(client_id) is None:
+             return False
 
         with self.lock:
 
@@ -499,6 +502,7 @@ if __name__ == "__main__":
 
     try:
         broker.start()
+        print("Press CTRL+C to quit.")
 
         while True:
             time.sleep(1)

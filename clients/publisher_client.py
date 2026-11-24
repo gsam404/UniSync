@@ -10,15 +10,55 @@ from networking.protocol import (
     create_message,
 )
 
+from clients.client_manager import (
+    PUBLISHER_PROFILES,
+    get_publisher_topics,
+)
+
 from broker.topic_manager import UNIVERSITY_TOPICS, COLLEGE_TOPICS
 
 
 HOST = "127.0.0.1"
 PORT = 5000
 
+def choose_publisher():
+    print("\n=== UniSync Publisher Registration ===")
+    print("\nAvailable University Offices:")
 
-def choose_topic():
-    topics = sorted(UNIVERSITY_TOPICS | COLLEGE_TOPICS)
+    publishers = list(PUBLISHER_PROFILES.items())
+
+    for index, (publisher_id, profile) in enumerate(publishers, start=1):
+        print(f"{index}. {profile['name']}")
+
+    print("0. Exit")
+
+    choice = input("\nSelect your office: ").strip()
+
+    if choice == "0":
+        return None
+
+    if not choice.isdigit():
+        print("Invalid choice.")
+        return None
+
+    choice = int(choice)
+
+    if choice < 1 or choice > len(publishers):
+        print("Invalid choice.")
+        return None
+
+    publisher_id, profile = publishers[choice - 1]
+
+    entered_id = input("\nEnter Publisher ID: ").strip()
+
+    if entered_id != publisher_id:
+        print("Invalid Publisher ID. Access denied.")
+        return None
+
+    return publisher_id, profile
+
+def choose_topic(publisher_id):
+    topics = sorted(get_publisher_topics(publisher_id))
 
     print("\nAvailable Topics:")
 
@@ -65,8 +105,8 @@ def compose_message():
     }
 
 
-def create_announcement():
-    topic = choose_topic()
+def create_announcement(publisher_id):
+    topic = choose_topic(publisher_id)
 
     if topic is None:
         return None
@@ -155,7 +195,7 @@ def run_publisher(client_id):
                 break
 
             elif command == "publish":
-                announcement = create_announcement()
+                announcement = create_announcement(client_id)
 
                 if announcement is None:
                     print("Announcement creation cancelled.")
@@ -182,7 +222,11 @@ def run_publisher(client_id):
 
 
 if __name__ == "__main__":
-    client_id = input("Enter publisher ID: ").strip()
+    selected_publisher = choose_publisher()
 
-    if client_id:
-        run_publisher(client_id)
+    if selected_publisher is not None:
+        publisher_id, profile = selected_publisher
+
+        print(f"\nWelcome, {profile['name']}!")
+
+        run_publisher(publisher_id)
