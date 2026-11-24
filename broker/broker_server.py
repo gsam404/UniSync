@@ -192,7 +192,9 @@ class BrokerServer:
 
             handler.start()
 
-    
+
+
+
     def register(self, client_id, role, handler):
         if role == "publisher" and get_publisher(client_id) is None:
             return False
@@ -205,8 +207,20 @@ class BrokerServer:
             if client_id in self.clients:
                 return False
 
+            if role == "subscriber":
+                try:
+                    self.queue_repository.register_subscriber(client_id)
+                except Exception:
+                    logger.exception(
+                        "Failed to register subscriber %s",
+                        client_id,
+                    )
+                    return False
+
             self.clients[client_id] = handler
             return True
+
+
 
         
     def restore_subscriptions(self, subscriber_id):
