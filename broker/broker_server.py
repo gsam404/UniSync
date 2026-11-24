@@ -220,9 +220,6 @@ class BrokerServer:
             self.clients[client_id] = handler
             return True
 
-
-
-        
     def restore_subscriptions(self, subscriber_id):
         """
         Restores a subscriber's saved topics from SQLite
@@ -247,10 +244,24 @@ class BrokerServer:
 
     def acknowledge_message(self, subscriber_id, message_id):
         """
-        Removes a pending delivery after a subscriber acknowledges it.
+        Records successful delivery and removes the pending message.
         """
 
         try:
+
+            is_pending = self.queue_repository.has_pending_delivery(
+                subscriber_id,
+                message_id,
+            )
+
+            if not is_pending:
+                return False
+
+            self.queue_repository.record_delivery_history(
+                subscriber_id,
+                message_id,
+            )
+
             return self.queue_repository.remove_pending_delivery(
                 subscriber_id,
                 message_id,
@@ -263,6 +274,7 @@ class BrokerServer:
                 subscriber_id,
             )
             return False
+
         
     def unregister(self, client_id):
         """

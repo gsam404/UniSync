@@ -72,6 +72,23 @@ def initialize_database():
                     ON DELETE CASCADE
             )
         """)
+                # Stores messages successfully received by each subscriber.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS delivery_history (
+                subscriber_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                received_at REAL NOT NULL,
+                PRIMARY KEY (subscriber_id, message_id),
+                FOREIGN KEY (message_id)
+                    REFERENCES messages(message_id)
+                    ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_history_subscriber
+            ON delivery_history (subscriber_id, received_at)
+        """)
 
                 # Preserve subscriber IDs already present in existing records.
         cursor.execute("""

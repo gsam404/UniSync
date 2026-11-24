@@ -119,6 +119,22 @@ class QueueRepository:
         finally:
             connection.close()
 
+    def get_message_history(self, limit=100):
+        """Retrieves the latest published messages."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT * FROM messages
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (limit,))
+
+            return [dict(row) for row in cursor.fetchall()]
+
+        finally:
+            connection.close()
+
     def save_subscription(self, subscriber_id, topic):
         """Saves a subscriber's topic subscription."""
         connection = get_connection()
@@ -226,6 +242,23 @@ class QueueRepository:
         finally:
             connection.close()
 
+    def has_pending_delivery(self, subscriber_id, message_id):
+        """Checks whether a message is pending, regardless of retry time."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT 1
+                FROM pending_deliveries
+                WHERE subscriber_id = ? AND message_id = ?
+                LIMIT 1
+            """, (subscriber_id, message_id))
+
+            return cursor.fetchone() is not None
+
+        finally:
+            connection.close()
+
     def get_pending_deliveries(self, subscriber_id):
         """Retrieves pending messages that are ready for delivery."""
         connection = get_connection()
@@ -261,6 +294,58 @@ class QueueRepository:
 
             connection.commit()
             return cursor.rowcount > 0
+
+        finally:
+            connection.close()
+
+    def record_delivery_history(self, subscriber_id, message_id):
+        """Records a message successfully received by a subscriber."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                INSERT OR IGNORE INTO delivery_history
+                (subscriber_id, message_id, received_at)
+                VALUES (?, ?, ?)
+            """, (subscriber_id, message_id, time.time()))
+
+            connection.commit()
+            return cursor.rowcount > 0
+
+        finally:
+            connection.close()
+
+    def get_subscriber_message_history(self, subscriber_id):
+        """Retrieves all messages received by a subscriber."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT messages.*, delivery_history.received_at
+                FROM delivery_history
+                JOIN messages
+                    ON delivery_history.message_id = messages.message_id
+                WHERE delivery_history.subscriber_id = ?
+                ORDER BY delivery_history.received_at DESC
+            """, (subscriber_id,))
+
+            return [dict(row) for row in cursor.fetchall()]
+
+        finally:
+            connection.close()
+
+    def get_publisher_message_history(self, publisher_id):
+        """Retrieves all messages published by a publisher."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT * FROM messages
+                WHERE publisher_id = ?
+                ORDER BY timestamp DESC
+            """, (publisher_id,))
+
+            return [dict(row) for row in cursor.fetchall()]
 
         finally:
             connection.close()

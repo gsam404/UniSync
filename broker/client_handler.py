@@ -13,6 +13,7 @@ from networking.protocol import (
     SUBSCRIBE,
     UNSUBSCRIBE,
     ACK,
+    HISTORY,
     STATUS,
     ERROR,
     DISCONNECT,
@@ -330,6 +331,43 @@ class ClientHandler(threading.Thread):
                         topic=topic,
                     )
                 )
+
+                continue
+
+            # Handle message history requests.
+            if message_type == HISTORY:
+
+                try:
+                    if self.role == "subscriber":
+                        messages = (
+                            self.broker.queue_repository
+                            .get_subscriber_message_history(self.client_id)
+                        )
+
+                    elif self.role == "publisher":
+                        messages = (
+                            self.broker.queue_repository
+                            .get_publisher_message_history(self.client_id)
+                        )
+
+                    else:
+                        self.send_error("Invalid client role")
+                        continue
+
+                    self.send(
+                        create_message(
+                            HISTORY,
+                            messages=messages,
+                        )
+                    )
+
+                except Exception:
+                    logger.exception(
+                        "Failed to retrieve message history"
+                    )
+                    self.send_error(
+                        "Failed to retrieve message history"
+                    )
 
                 continue
 
