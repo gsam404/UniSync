@@ -1,6 +1,7 @@
 
 import sqlite3
 import os
+import time
 
 DATABASE_PATH = os.path.join(
     os.path.dirname(__file__),
@@ -47,6 +48,25 @@ def initialize_database():
                 PRIMARY KEY (subscriber_id, topic)
             )
         """)
+
+        # Stores permanently registered subscriber IDs.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                subscriber_id TEXT PRIMARY KEY,
+                registered_at REAL NOT NULL
+            )
+        """)
+
+        # Preserve subscriber IDs already present in existing records.
+        cursor.execute("""
+            INSERT OR IGNORE INTO subscribers (subscriber_id, registered_at)
+            SELECT subscriber_id, ?
+            FROM (
+                SELECT subscriber_id FROM subscriptions
+                UNION
+                SELECT subscriber_id FROM pending_deliveries
+            )
+        """, (time.time(),))
 
         # Stores messages waiting to be delivered.
         cursor.execute("""

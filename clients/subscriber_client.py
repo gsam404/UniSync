@@ -285,9 +285,15 @@ def run_subscriber(client_id):
 
 
 if __name__ == "__main__":
-    client_id = input("Enter subscriber ID: ").strip()
+    print("\n===== UniSync Subscriber Registration =====")
+
+    client_id = input(
+        "Enter your Student Number Number: "
+    ).strip()
 
     if client_id:
         run_subscriber(client_id)
+    else:
+        print("Subscriber ID cannot be empty.")
 
 

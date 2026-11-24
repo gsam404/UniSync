@@ -193,26 +193,22 @@ class BrokerServer:
             handler.start()
 
     def register(self, client_id, role, handler):
-        """
-        Atomically registers a client.
-
-        Returns:
-            True if registration succeeds
-            False if the ID is already in use or the broker is stopping
-        """
         if role == "publisher" and get_publisher(client_id) is None:
-             return False
+            return False
 
         with self.lock:
-
             if not self.running:
                 return False
 
+            # Prevent simultaneous connections using the same ID.
             if client_id in self.clients:
                 return False
 
-            self.clients[client_id] = handler
+            if role == "subscriber":
+                if not self.queue_repository.register_subscriber(client_id):
+                    return False
 
+            self.clients[client_id] = handler
             return True
         
     def restore_subscriptions(self, subscriber_id):

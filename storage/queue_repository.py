@@ -5,6 +5,39 @@ from storage.database import get_connection
 
 class QueueRepository:
 
+    def register_subscriber(self, subscriber_id):
+        """Permanently registers a unique subscriber ID."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                INSERT OR IGNORE INTO subscribers
+                (subscriber_id, registered_at)
+                VALUES (?, ?)
+            """, (subscriber_id, time.time()))
+
+            connection.commit()
+            return cursor.rowcount > 0
+
+        finally:
+            connection.close()
+
+
+    def subscriber_exists(self, subscriber_id):
+        """Checks whether a subscriber ID is already registered."""
+        connection = get_connection()
+
+        try:
+            cursor = connection.execute("""
+                SELECT 1 FROM subscribers
+                WHERE subscriber_id = ?
+            """, (subscriber_id,))
+
+            return cursor.fetchone() is not None
+
+        finally:
+            connection.close()
+
     def save_message(self, message):
         """
         Saves a published message to the database.
