@@ -991,7 +991,7 @@ class UniSyncApp(ctk.CTk):
 
         self.subscriber_id_entry = ctk.CTkEntry(
             content,
-            placeholder_text="Enter your Student Number",
+            placeholder_text="Enter your University Number ",
             height=38
         )
         self.subscriber_id_entry.pack(fill="x", pady=(0, 10))
