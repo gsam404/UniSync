@@ -192,7 +192,9 @@ class BrokerServer:
 
             handler.start()
 
-    
+
+
+
     def register(self, client_id, role, handler):
         if role == "publisher" and get_publisher(client_id) is None:
             return False
@@ -205,10 +207,19 @@ class BrokerServer:
             if client_id in self.clients:
                 return False
 
+            if role == "subscriber":
+                try:
+                    self.queue_repository.register_subscriber(client_id)
+                except Exception:
+                    logger.exception(
+                        "Failed to register subscriber %s",
+                        client_id,
+                    )
+                    return False
+
             self.clients[client_id] = handler
             return True
 
-        
     def restore_subscriptions(self, subscriber_id):
         """
         Restores a subscriber's saved topics from SQLite
@@ -233,10 +244,24 @@ class BrokerServer:
 
     def acknowledge_message(self, subscriber_id, message_id):
         """
-        Removes a pending delivery after a subscriber acknowledges it.
+        Records successful delivery and removes the pending message.
         """
 
         try:
+
+            is_pending = self.queue_repository.has_pending_delivery(
+                subscriber_id,
+                message_id,
+            )
+
+            if not is_pending:
+                return False
+
+            self.queue_repository.record_delivery_history(
+                subscriber_id,
+                message_id,
+            )
+
             return self.queue_repository.remove_pending_delivery(
                 subscriber_id,
                 message_id,
@@ -249,6 +274,7 @@ class BrokerServer:
                 subscriber_id,
             )
             return False
+
         
     def unregister(self, client_id):
         """

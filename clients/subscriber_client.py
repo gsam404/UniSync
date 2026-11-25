@@ -12,6 +12,7 @@ from networking.protocol import (
     ERROR,
     MESSAGE,
     ACK,
+    HISTORY,
     DISCONNECT,
     create_message,
 )
@@ -98,7 +99,7 @@ def listen_for_messages(sock, response_queue, stop_event):
 
                     except (ConnectionError, OSError) as exc:
                         print(f"Failed to acknowledge notification {message_id}: {exc}")
-            elif message_type in (STATUS, ERROR):
+            elif message_type in (STATUS, ERROR, HISTORY):
                 response_queue.put(response)
 
 
@@ -175,7 +176,38 @@ def unsubscribe_from_topic(sock, response_queue, topic):
     else:
         print("Unsubscription failed:", response.get("reason"))
 
+def view_message_history(sock, response_queue):
+    response = send_request(
+        sock,
+        response_queue,
+        create_message(HISTORY),
+    )
 
+    if response is None:
+        return
+
+    if response.get("type") == ERROR:
+        print("Failed to retrieve history:", response.get("reason"))
+        return
+
+    messages = response.get("messages", [])
+
+    print("\n===== Your Received Message History =====")
+
+    if not messages:
+        print("You have no received messages yet.")
+        return
+
+    for message in messages:
+        print("\n------------------------------")
+        print("Topic:", message.get("topic"))
+        print("Title:", message.get("title"))
+        print("Content:", message.get("content"))
+        print("Message ID:", message.get("message_id"))
+
+    print("\n==========================================")
+
+    
 def select_topic():
     display_topics()
 
@@ -196,7 +228,8 @@ def subscriber_menu(sock, response_queue):
         print("1. Subscribe to a topic")
         print("2. Unsubscribe from a topic")
         print("3. View available topics")
-        print("4. Disconnect")
+        print("4. View received message history")
+        print("5. Disconnect")
 
         choice = input("Select an option: ").strip()
 
@@ -216,6 +249,9 @@ def subscriber_menu(sock, response_queue):
             display_topics()
 
         elif choice == "4":
+            view_message_history(sock, response_queue)
+
+        elif choice == "5":
             break
 
         else:

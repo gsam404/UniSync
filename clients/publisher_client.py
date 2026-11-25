@@ -6,6 +6,7 @@ from networking.protocol import (
     PUBLISH,
     STATUS,
     ERROR,
+    HISTORY,
     DISCONNECT,
     create_message,
 )
@@ -156,6 +157,42 @@ def send_announcement(sock, announcement):
     print("Unexpected broker response:", response)
     return False
 
+def view_message_history(sock):
+    send_msg(
+        sock,
+        create_message(HISTORY),
+    )
+
+    response = recv_msg(sock)
+
+    if response is None:
+        print("No response received from broker.")
+        return
+
+    if response.get("type") == ERROR:
+        print("Failed to retrieve history:", response.get("reason"))
+        return
+
+    if response.get("type") != HISTORY:
+        print("Unexpected broker response:", response)
+        return
+
+    messages = response.get("messages", [])
+
+    print("\n===== Your Published Message History =====")
+
+    if not messages:
+        print("You have not published any messages yet.")
+        return
+
+    for message in messages:
+        print("\n------------------------------")
+        print("Topic:", message.get("topic"))
+        print("Title:", message.get("title"))
+        print("Content:", message.get("content"))
+        print("Message ID:", message.get("message_id"))
+
+    print("\n==========================================")
 
 def run_publisher(client_id):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -186,6 +223,7 @@ def run_publisher(client_id):
 
         print("\nCommands:")
         print("  publish - Create and send an announcement")
+        print("  history - View your published messages")
         print("  quit    - Disconnect from UniSync")
 
         while True:
@@ -202,6 +240,9 @@ def run_publisher(client_id):
                     continue
 
                 send_announcement(sock, announcement)
+
+            elif command == "history":
+                view_message_history(sock)
 
             else:
                 print("Unknown command. Type 'publish' or 'quit'.")

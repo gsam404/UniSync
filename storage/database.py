@@ -57,17 +57,6 @@ def initialize_database():
             )
         """)
 
-        # Preserve subscriber IDs already present in existing records.
-        cursor.execute("""
-            INSERT OR IGNORE INTO subscribers (subscriber_id, registered_at)
-            SELECT subscriber_id, ?
-            FROM (
-                SELECT subscriber_id FROM subscriptions
-                UNION
-                SELECT subscriber_id FROM pending_deliveries
-            )
-        """, (time.time(),))
-
         # Stores messages waiting to be delivered.
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pending_deliveries (
@@ -83,8 +72,36 @@ def initialize_database():
                     ON DELETE CASCADE
             )
         """)
+                # Stores messages successfully received by each subscriber.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS delivery_history (
+                subscriber_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                received_at REAL NOT NULL,
+                PRIMARY KEY (subscriber_id, message_id),
+                FOREIGN KEY (message_id)
+                    REFERENCES messages(message_id)
+                    ON DELETE CASCADE
+            )
+        """)
 
-                # Add retry tracking columns to existing databases.
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_history_subscriber
+            ON delivery_history (subscriber_id, received_at)
+        """)
+
+                # Preserve subscriber IDs already present in existing records.
+        cursor.execute("""
+            INSERT OR IGNORE INTO subscribers (subscriber_id, registered_at)
+            SELECT subscriber_id, ?
+            FROM (
+                SELECT subscriber_id FROM subscriptions
+                UNION
+                SELECT subscriber_id FROM pending_deliveries
+            )
+        """, (time.time(),))
+
+        # Add retry tracking columns to existing databases.
         existing_columns = {
             row["name"]
             for row in cursor.execute(
